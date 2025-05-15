@@ -1,47 +1,42 @@
-import time
+#
+#   ChatGPT generated code
+#
 
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import WebDriverException
+import asyncio
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
-
-options = Options()
-options.add_argument('--headless')
-options.add_argument('--disable-gpu')
-
-driver = None
-
-
-def fetch_market_page( url: str, timing : int = 6, retries : int = 5  ) -> str:
-    global driver
-    global options
-
-    site : str = ""
+def fetch_market_page(url: str, timing: int = 6, retries: int = 5) -> str:
+    site: str = ""
 
     if retries < 0:
-        print( f"[!] Error in Steam. Repeat limit reached." )
+        print(f"[!] Error in Steam. Repeat limit reached.")
         return ""
 
     try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context()
+            page = context.new_page()
 
-        if driver == None:
-            driver = webdriver.Chrome(options=options)
-        
-        driver.get(url)
-        time.sleep( timing )
+            page.goto(url, timeout=60000)  # 60s timeout
+            page.wait_for_timeout(timing * 1000)  # Convert seconds to ms
 
-        site = driver.page_source
+            site = page.content()
 
-        if "An error was encountered while processing your request".lower() in str(site).lower():
-            print( f"[!] Error in Steam. Repeating in {timing*2}s .." )
-            time.sleep( timing*2 )
+            if "An error was encountered while processing your request" in site.lower():
+                print(f"[!] Error in Steam. Repeating in {timing*2}s ..")
+                page.wait_for_timeout(timing * 2000)
+                browser.close()
+                return fetch_market_page(url, timing, retries - 1)
 
-            return fetch_market_page( url, timing, retries - 1 )
+            page.wait_for_timeout(timing * 2000)
+            browser.close()
 
-        time.sleep( timing*2 )
-
-    except WebDriverException:
-        print("[!] Error in connection")
+    except PlaywrightTimeoutError:
+        print("[!] Timeout error during navigation.")
+        return ""
+    except Exception as e:
+        print(f"[!] Error in connection: {e}")
         return ""
 
     return site
